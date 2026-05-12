@@ -1,0 +1,44 @@
+version: 1
+policy_name: "thoughtlens-policy"
+rules:
+  - name: injection_attempt
+    match:
+      pattern: injection
+    action: HUMAN_REVIEW
+    log: true
+
+  - name: path_traversal
+    match:
+      pattern: path_traversal
+    action: HUMAN_REVIEW
+    log: true
+
+  - name: credential_in_prompt
+    match:
+      pattern: credential
+    action: HUMAN_REVIEW
+    log: true
+
+  - name: exfiltration_attempt
+    match:
+      pattern: exfiltration
+    action: HUMAN_REVIEW
+    log: true
+
+  - name: pii_detected
+    match:
+      pattern: pii
+    action: LOG
+    log: true
+
+  - name: high_risk
+    match:
+      risk_score_above: 0.7
+    action: HUMAN_REVIEW
+    log: true
+
+  - name: default
+    match:
+      all: true
+    action: ALLOW
+    log: false
