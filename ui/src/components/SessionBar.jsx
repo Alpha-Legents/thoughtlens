@@ -1,207 +1,113 @@
 import { memo } from 'react';
-import { Play, Loader, AlertTriangle, CheckCircle, Zap } from 'lucide-react';
 
-const statusIcons = {
-  paused: AlertTriangle,
-  running: Zap,
-  completed: CheckCircle,
-  error: AlertTriangle,
-  starting: Loader
-};
-
-const statusColors = {
-  paused: 'text-amber-500',
-  running: 'text-green-500',
-  completed: 'text-blue-500',
-  error: 'text-red-500',
-  starting: 'text-gray-500'
-};
-
-const SessionStatus = memo(({ status }) => {
-  const Icon = statusIcons[status] || Zap;
-  const color = statusColors[status] || 'text-gray-500';
-
-  return (
-    <Icon className={`w-3 h-3 ${color}`} />
-  );
+const StatusDot = memo(({ status }) => {
+  const style = {
+    display: 'inline-block', width: 6, height: 6,
+    borderRadius: '50%', flexShrink: 0,
+  };
+  const map = {
+    active:   { background: '#00ff9d', boxShadow: '0 0 6px rgba(0,255,157,0.5)' },
+    paused:   { background: '#ffb000', animation: 'blink 1.2s ease-in-out infinite' },
+    killed:   { background: '#ff3333' },
+    complete: { background: '#38bdf8' },
+    resumed:  { background: '#00ff9d', boxShadow: '0 0 6px rgba(0,255,157,0.5)' },
+  };
+  return <span style={{ ...style, ...(map[status] || { background: '#334155' }) }} />;
 });
+StatusDot.displayName = 'StatusDot';
 
-SessionStatus.displayName = 'SessionStatus';
-
-const SessionBar = ({
-  sessions = [],
-  loading = false,
-  selectedSession,
-  onSelect
-}) => {
-  const colors = {
-    clean: 'bg-gray-800 hover:bg-gray-700',
-    warn: 'bg-amber-900/30 hover:bg-amber-800/40',
-    critical: 'bg-red-900/30 hover:bg-red-800/40',
-  };
-
-  const selectedColor = {
-    clean: 'bg-blue-600/20 border-blue-400',
-    warn: 'bg-amber-600/20 border-amber-400',
-    critical: 'bg-red-600/20 border-red-400',
-  };
-
-  const getSessionColor = (session) => {
-    const severity = session.lastSeverity || 'clean';
-    const isSelected = session.id === selectedSession;
-
-    if (isSelected) {
-      return selectedColor[severity] || selectedColor.clean;
-    }
-    return colors[severity] || colors.clean;
-  };
-
-  const formatTimeAgo = (timestamp) => {
-    if (!timestamp) return 'Unknown';
-
-    const now = Date.now();
-    const then = new Date(timestamp).getTime();
-    const diff = Math.floor((now - then) / 1000);
-
-    if (diff < 60) return `${diff}s`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-    return `${Math.floor(diff / 3600)}h`;
-  };
-
-  const getHighlights = (session) => {
-    const marks = [];
-
-    if (session.criticalCount > 0) marks.push('🚨');
-    if (session.warnCount > 0) marks.push('⚠️');
-    if (session.paused) marks.push('⏸️');
-
-    return marks.slice(0, 3).join(' ');
-  };
-
-  if (loading) {
-    return (
-      <div className="p-4 space-y-3">
-        <div className="text-sm font-semibold text-gray-200 border-b border-gray-750 pb-2">
-          Active Sessions
-        </div>
-        <div className="flex items-center gap-2 text-gray-400">
-          <Loader className="w-4 h-4 animate-spin" />
-          Loading...
-        </div>
-      </div>
-    );
-  }
-
-  if (sessions.length === 0) {
-    return (
-      <div className="p-4 text-center">
-        <div className="text-sm font-semibold text-gray-200 border-b border-gray-750 pb-2 mb-3">
-          Active Sessions
-        </div>
-        <div className="flex flex-col items-center gap-3 py-6">
-          <Play className="w-8 h-8 text-gray-500" />
-          <p className="text-sm text-gray-400">No active sessions</p>
-          <p className="text-xs text-gray-500">Connect clients to see sessions here</p>
-        </div>
-      </div>
-    );
-  }
-
+export default function SessionBar({ sessions, loading, selectedSession, onSelect, onToggleAudit, showAudit }) {
   return (
-    <div className="h-full flex flex-col bg-gradient-to-b from-slate-900/90 via-slate-800/80 to-gray-900/90 backdrop-blur-xl">
-      <div className="p-4 border-b border-cyan-500/20 bg-gradient-to-r from-cyan-900/20 via-blue-900/20 to-purple-900/20 backdrop-blur-md">
-        <h3 className="text-sm font-bold text-slate-100 flex items-center justify-between">
-          <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-            Active Sessions
-          </span>
-          <span className="text-xs text-cyan-400 font-mono bg-cyan-500/20 px-2 py-1 rounded-full border border-cyan-500/30">
-            {sessions.length}
-          </span>
-        </h3>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '0 12px', height: '100%',
+      background: '#050505',
+      fontFamily: "'JetBrains Mono', monospace",
+      overflowX: 'auto',
+    }}>
+
+      {/* Brand */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginRight: 4 }}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1L13 4V10L7 13L1 10V4L7 1Z"
+            stroke="#22d3ee" strokeWidth="1.2" fill="rgba(34,211,238,0.08)" />
+          <circle cx="7" cy="7" r="2" fill="#22d3ee" opacity="0.8" />
+        </svg>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', letterSpacing: '0.08em' }}>
+          THOUGHTLENS
+        </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-2 p-3">
-        {sessions.map(session => (
-          <div
-            key={session.id}
-            onClick={() => onSelect && onSelect(session.id)}
-            className={`
-              p-4 rounded-xl cursor-pointer transition-all duration-500 ease-in-out border backdrop-blur-md
-              ${getSessionColor(session)}
-              ${session.id === selectedSession
-                ? 'bg-gradient-to-r from-cyan-500/30 via-blue-500/20 to-purple-500/30 border-cyan-400/60 ring-2 ring-cyan-400/40 ring-offset-2 ring-offset-slate-900 shadow-lg shadow-cyan-500/30'
-                : 'bg-slate-800/40 border-slate-700/40 hover:bg-slate-700/60 hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/20'
-              }
-              group hover:transform hover:scale-[1.02] hover:translate-x-1
-            `}
+      <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+
+      {/* Sessions */}
+      {loading && (
+        <span style={{ fontSize: 11, color: '#334155', animation: 'blink 1.2s ease-in-out infinite' }}>
+          scanning...
+        </span>
+      )}
+
+      {!loading && sessions.length === 0 && (
+        <span style={{ fontSize: 11, color: '#334155' }}>
+          no sessions — run a scenario to start
+        </span>
+      )}
+
+      {sessions.map(s => {
+        const sel = s.session_id === selectedSession;
+        const hasCrit = (s.criticalCount || 0) > 0;
+        const hasWarn = (s.warnCount || 0) > 0;
+        return (
+          <button
+            key={s.session_id}
+            onClick={() => onSelect?.(s.session_id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '3px 10px', flexShrink: 0,
+              background: sel ? 'rgba(34,211,238,0.08)' : 'transparent',
+              border: `1px solid ${sel ? 'rgba(34,211,238,0.30)' : hasCrit ? 'rgba(255,51,51,0.30)' : 'rgba(255,255,255,0.08)'}`,
+              borderRadius: 0,
+              color: sel ? '#22d3ee' : '#64748b',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11, fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 150ms ease-out',
+            }}
+            onMouseEnter={e => !sel && (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)')}
+            onMouseLeave={e => !sel && (e.currentTarget.style.borderColor = hasCrit ? 'rgba(255,51,51,0.30)' : 'rgba(255,255,255,0.08)')}
           >
-            <div className="flex items-start justify-between">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <SessionStatus status={session.status} />
-                  <span className="text-sm font-semibold text-slate-200 truncate group-hover:text-slate-50">
-                    {session.name || session.id.slice(-8)}
-                  </span>
-                </div>
+            <StatusDot status={s.status} />
+            <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              {s.session_id.slice(-8)}
+            </span>
+            {hasCrit && <span style={{ color: '#ff3333', fontSize: 10 }}>✕{s.criticalCount}</span>}
+            {!hasCrit && hasWarn && <span style={{ color: '#ffb000', fontSize: 10 }}>△{s.warnCount}</span>}
+            <span style={{ color: '#1e293b', fontSize: 10 }}>{s.events_count || 0}ev</span>
+          </button>
+        );
+      })}
 
-                <div className="text-xs text-slate-400 font-mono">
-                  {formatTimeAgo(session.created_at)} ago
-                </div>
-              </div>
-            </div>
+      {/* Spacer */}
+      <div style={{ flex: 1 }} />
 
-            {/* Session Stats */}
-            <div className="mt-2 flex items-center justify-between">
-              <div className="flex items-center gap-3 text-xs">
-                {session.criticalCount > 0 && (
-                  <span className="text-red-400 font-medium">
-                    {session.criticalCount}🚨
-                  </span>
-                )}
+      {/* Audit button */}
+      <button
+        onClick={onToggleAudit}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          padding: '3px 10px', flexShrink: 0,
+          background: showAudit ? 'rgba(34,211,238,0.08)' : 'transparent',
+          border: `1px solid ${showAudit ? 'rgba(34,211,238,0.30)' : 'rgba(255,255,255,0.08)'}`,
+          borderRadius: 0,
+          color: showAudit ? '#22d3ee' : '#475569',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 11, cursor: 'pointer',
+          transition: 'all 150ms ease-out',
+        }}
+      >
+        ⊞ AUDIT
+      </button>
 
-                {session.warnCount > 0 && (
-                  <span className="text-amber-400 font-medium">
-                    {session.warnCount}⚠️
-                  </span>
-                )}
-
-                <span className="text-gray-500">
-                  {session.eventCount || 0} events
-                </span>
-              </div>
-
-              {/* High importance badge */}
-              {getHighlights(session) && (
-                <div className="text-2xs text-gray-500">
-                  {getHighlights(session)}
-                </div>
-              )}
-            </div>
-
-            {/* Quick info */}
-            <div className="mt-1 text-xs text-gray-500 group-hover:text-gray-400 transition-colors">
-              Status: {session.status || 'unknown'}
-              {session.paused && ' • Paused'}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Session Actions Footer */}
-      <div className="p-4 border-t border-gray-750">
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="text-gray-400">
-            <span className="font-semibold">Total:</span> {sessions.length}
-          </div>
-          <div className="text-gray-400">
-            <span className="font-semibold">Active:</span> {
-              sessions.filter(s => s.status === 'running').length
-            }
-          </div>
-        </div>
-      </div>
     </div>
   );
-};
-
-export default SessionBar;
+}

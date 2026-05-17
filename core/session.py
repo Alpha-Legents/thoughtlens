@@ -8,14 +8,8 @@ import time
 import uuid
 from events.schema import ThoughtEvent
 
-
-@dataclass
-class DeclaredScope:
-    allowed_file_paths: List[str]
-    allowed_domains: List[str]
-    allowed_tools: List[str]
-    declared_task: str
-    sensitive_keywords: List[str]
+# Import DeclaredScope from security.scope to keep single definition
+from security.scope import DeclaredScope
 
 
 @dataclass
@@ -46,9 +40,10 @@ class TLSession:
 _sessions: Dict[str, TLSession] = {}
 
 
-def create_session(original_prompt: str, scope: DeclaredScope) -> TLSession:
+def create_session(original_prompt: str, scope: DeclaredScope, session_id: str = None) -> TLSession:
     """Create a new TLSession."""
-    session_id = str(uuid.uuid4())
+    if session_id is None:
+        session_id = str(uuid.uuid4())
     session = TLSession(
         session_id=session_id,
         created_at=time.time(),

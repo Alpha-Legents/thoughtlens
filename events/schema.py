@@ -43,6 +43,7 @@ class ThoughtEvent:
     severity: Severity
     timestamp: float
     message: str
+    original_prompt: str | None = None
 
     tool_name: str | None = None
     tool_args: dict | None = None

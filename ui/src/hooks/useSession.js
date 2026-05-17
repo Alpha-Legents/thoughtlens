@@ -2,78 +2,56 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 export const useSession = ({ onSelect = null, autoRefresh = true } = {}) => {
   const [sessions, setSessions] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedSession, setSelectedSession] = useState(null);
-  const sessionsRef = useRef([]); // Store without triggering re-renders
+  const [loading, setLoading] = useState(true);
+  const selectedRef = useRef(null);
+  const prevJson = useRef('');
 
-  const fetchSessions = useCallback(async () => {
-    setLoading(true);
+  const fetchSessions = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
     try {
-      const response = await fetch('/api/control/sessions');
-      if (response.ok) {
-        const data = await response.json();
-        const newSessions = data.sessions || [];
-        
-        // Only update state if sessions actually changed
-        if (JSON.stringify(sessionsRef.current) !== JSON.stringify(newSessions)) {
-          sessionsRef.current = newSessions;
-          setSessions(newSessions);
-          
-          // Auto-select first session if none selected
-          if (!selectedSession && newSessions.length > 0) {
-            handleSelectSession(newSessions[0].id);
-          }
+      // FastAPI serves /sessions directly — not /api/control/sessions
+      const res = await fetch('/sessions');
+      if (!res.ok) return;
+      const data = await res.json();
+      const next = data.sessions || [];
+      const nextJson = JSON.stringify(next);
+
+      // Only update state if data actually changed — prevents flicker
+      if (nextJson !== prevJson.current) {
+        prevJson.current = nextJson;
+        setSessions(next);
+
+        // Auto-select first session if none selected yet
+        if (!selectedRef.current && next.length > 0) {
+          selectedRef.current = next[0].session_id;
+          if (onSelect) onSelect(next[0].session_id);
         }
       }
-    } catch (error) {
-      console.error('Error fetching sessions:', error);
+    } catch (err) {
+      console.error('Session fetch error:', err);
+    } finally {
+      if (showLoading) setLoading(false);
     }
-    setLoading(false);
-  }, [selectedSession]);
-
-  const handleSelectSession = (sessionId) => {
-    setSelectedSession(sessionId);
-    if (onSelect) {
-      onSelect(sessionId);
-    }
-  };
+  }, [onSelect]);
 
   useEffect(() => {
+    fetchSessions(true);
     if (!autoRefresh) return;
-    
-    // Initial fetch
-    fetchSessions();
-    
-    // Poll without forcing re-renders on same data
-    const interval = setInterval(() => {
-      // Fetch in background without loading indicator
-      fetch('/api/control/sessions')
-        .then(res => res.ok ? res.json() : null)
-        .then(data => {
-          if (data?.sessions) {
-            const newSessions = data.sessions;
-            // Only update if changed
-            if (JSON.stringify(sessionsRef.current) !== JSON.stringify(newSessions)) {
-              sessionsRef.current = newSessions;
-              setSessions(newSessions);
-              
-              if (!selectedSession && newSessions.length > 0) {
-                handleSelectSession(newSessions[0].id);
-              }
-            }
-          }
-        })
-        .catch(err => console.error('Poll error:', err));
-    }, 5000);
-    
-    return () => clearInterval(interval);
+
+    const id = setInterval(() => fetchSessions(false), 3000);
+    return () => clearInterval(id);
   }, [autoRefresh, fetchSessions]);
+
+  const handleSelect = useCallback((sessionId) => {
+    selectedRef.current = sessionId;
+    if (onSelect) onSelect(sessionId);
+  }, [onSelect]);
 
   return {
     sessions,
     loading,
-    selectedSession,
-    setSelectedSession: handleSelectSession,
-    refreshSessions: fetchSessions
+    selectedSession: selectedRef.current,
+    setSelectedSession: handleSelect,
+    refreshSessions: () => fetchSessions(false),
   };
 };

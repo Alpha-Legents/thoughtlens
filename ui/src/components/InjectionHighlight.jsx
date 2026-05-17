@@ -1,242 +1,196 @@
-import { useState, useEffect } from 'react';
-import { Shield, AlertTriangle, Info, AlertCircle, Eye } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
 
-const confidenceColors = (confidence) => {
-  if (confidence >= 0.9) return {
-    bg: 'bg-red-900/30',
-    text: 'text-red-300',
-    border: 'border-red-400',
-    icon: <AlertCircle className="w-4 h-4" />
-  };
+function confidenceClass(c) {
+  if (c >= 0.9) return 'confidence-high';
+  if (c >= 0.7) return 'confidence-medium';
+  return 'confidence-low';
+}
+function confidenceColor(c) {
+  if (c >= 0.9) return 'var(--color-critical)';
+  if (c >= 0.7) return '#fb923c';
+  return 'var(--color-warn)';
+}
+function confidenceLabel(c) {
+  if (c >= 0.9) return 'HIGH';
+  if (c >= 0.7) return 'MED';
+  return 'LOW';
+}
 
-  if (confidence >= 0.7) return {
-    bg: 'bg-orange-900/30',
-    text: 'text-orange-300',
-    border: 'border-orange-400',
-    icon: <AlertTriangle className="w-4 h-4" />
-  };
+function HighlightedPrompt({ text, spans }) {
+  if (!text) return null;
+  if (!spans || spans.length === 0) {
+    return <span style={{ color: 'var(--text-secondary)' }}>{text}</span>;
+  }
+  const sorted = [...spans].sort((a, b) => a[0] - b[0]);
+  const parts = [];
+  let cursor = 0;
+  sorted.forEach(([start, end], i) => {
+    if (start > cursor) {
+      parts.push(<span key={`pre-${i}`} style={{ color: 'var(--text-muted)' }}>{text.slice(cursor, start)}</span>);
+    }
+    const conf = spans[i]?.confidence ?? 0.9;
+    parts.push(
+      <span key={`t-${i}`} className={`threat-span ${confidenceClass(conf)}`}>
+        {text.slice(start, end)}
+      </span>
+    );
+    cursor = end;
+  });
+  if (cursor < text.length) {
+    parts.push(<span key="post" style={{ color: 'var(--text-muted)' }}>{text.slice(cursor)}</span>);
+  }
+  return <>{parts}</>;
+}
 
-  if (confidence >= 0.5) return {
-    bg: 'bg-amber-900/30',
-    text: 'text-amber-300',
-    border: 'border-amber-400',
-    icon: <AlertTriangle className="w-4 h-4" />
-  };
-
-  return {
-    bg: 'bg-blue-900/30',
-    text: 'text-blue-300',
-    border: 'border-blue-400',
-    icon: <Info className="w-4 h-4" />
-  };
-};
-
-const InjectionHighlight = ({ threat, events, onThreatClick }) => {
+export default function InjectionHighlight({ threat, events, onThreatClick }) {
   const [selectedThreat, setSelectedThreat] = useState(null);
-  const [highlightedText, setHighlightedText] = useState('');
-  const [animationStage, setAnimationStage] = useState(0);
+  const prevId = useRef(null);
 
   useEffect(() => {
-    if (threat) {
+    if (threat && threat.id !== prevId.current) {
       setSelectedThreat(threat);
-      processThreatText(threat);
-      animateHighlight();
+      prevId.current = threat?.id;
     }
   }, [threat]);
 
-  const animateHighlight = () => {
-    let stage = 0;
+  const recentThreats = (events || [])
+    .filter(e => ['SCAN_THREAT', 'DEVIATION_THREAT'].includes(e.type))
+    .slice(-8);
 
-    const animate = () => {
-      stage = (stage + 1) % 3;
-      setAnimationStage(stage);
-
-      if (stage > 0) {
-        setTimeout(animate, 200);
-      }
-    };
-
-    setTimeout(animate, 100);
-  };
-
-  const processThreatText = (threatEvent) => {
-    if (!threatEvent?.content) {
-      setHighlightedText('No threat content available');
-      return;
-    }
-
-    const text = threatEvent.content;
-    const start = threatEvent.start || 0;
-    const end = threatEvent.end || text.length;
-    const confidence = threatEvent.confidence || 0;
-
-    // Extract the problematic portion
-    const beforeText = text.slice(0, Math.max(0, start));
-    const highlighted = text.slice(start, end);
-    const afterText = text.slice(end);
-
-    const colorConfig = confidenceColors(confidence);
-
-    setHighlightedText(
-      <div className="font-mono text-sm">
-        <span className="text-gray-400">{beforeText}</span>
-        <span
-          className={`px-1 rounded transition-all duration-600 ${colorConfig.bg} ${colorConfig.text} font-bold animate-fade-in`}
-          style={{
-            animationDelay: `${animationStage * 200}ms`
-          }}
-        >
-          {highlighted}
-        </span>
-        <span className="text-gray-400">{afterText}</span>
-      </div>
-    );
-  };
-
-  const recentThreats = events.filter(e =>
-    ['SCAN_THREAT', 'DEVIATION_THREAT'].includes(e.type)
-  ).slice(-5);
-
-  if (!selectedThreat && recentThreats.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center text-gray-500">
-        <div className="flex flex-col items-center gap-2">
-          <Shield className="w-8 h-8 text-gray-600" />
-          <p className="text-sm">No threats detected</p>
-          <p className="text-xs text-gray-600">Events are clean</p>
-        </div>
-      </div>
-    );
-  }
-
-  const activeThreat = selectedThreat || recentThreats[0];
-  const colorConfig = confidenceColors(activeThreat?.confidence || 0);
+  const active = selectedThreat || recentThreats[recentThreats.length - 1] || null;
+  const promptText = active?.original_prompt || active?.evidence || active?.message || '';
+  const span = active?.injection_span ? [active.injection_span] : [];
+  const vector = active?.injection_vector || active?.type || '';
+  const confidence = active?.confidence ?? null;
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-br from-red-950/40 via-purple-950/30 to-black/70 border-b border-red-500/30 backdrop-blur-xl">
-      {/* Header */}
-      <div className="p-4 border-b border-red-500/30 bg-gradient-to-r from-red-900/40 via-purple-900/30 to-pink-900/20 backdrop-blur-lg">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Eye className="w-5 h-5 text-red-400 drop-shadow-lg animate-pulse" />
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-400 rounded-full animate-ping"></div>
-          </div>
-          <h3 className="text-sm font-bold bg-gradient-to-r from-red-300 to-purple-300 bg-clip-text text-transparent">
-            Threat Analysis
-          </h3>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Current Threat Highlight */}
-        <div className={`p-5 rounded-xl border ${colorConfig.border} ${colorConfig.bg} backdrop-blur-md shadow-lg transition-all duration-600 ${
-          activeThreat?.severity === 'CRITICAL' ? 'animate-pulse shadow-red-500/40' : ''
-        }`}>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="p-1.5 rounded-full bg-red-500/20">
-              {colorConfig.icon}
-            </div>
-            <span className={`text-sm font-bold ${colorConfig.text}`}>
-              ⚠️ {activeThreat?.type?.replace('_', ' ').toUpperCase()} Detected
-            </span>
-          </div>
-
-          <div className="text-xs text-gray-300 mb-3 bg-slate-800/30 p-3 rounded-lg border border-slate-700/50">
-            <span className="font-bold text-cyan-300">Reason:</span> {activeThreat?.reason || 'Potential security threat'}
-          </div>
-
-          {activeThreat?.confidence && (
-            <div className="text-xs text-gray-300 mb-4">
-              <span className="font-bold text-red-400">Confidence:</span>
-              <span className="bg-gradient-to-r from-red-400 to-orange-400 bg-clip-text text-transparent font-bold text-sm ml-1">
-                {Math.round(activeThreat.confidence * 100)}%
-              </span>
-            </div>
-          )}
-
-          <div className="space-y-3">
-            <div className="text-xs font-bold text-cyan-300 flex items-center gap-2">
-              <div className="w-1 h-4 bg-cyan-400 rounded-full"></div>
-              Problematic Text:
-            </div>
-            <div className="bg-gray-900/50 p-4 rounded-xl border border-gray-700/50 backdrop-blur-sm shadow-inner">
-              <div className="font-mono text-sm leading-relaxed bg-gray-900/30 p-2 rounded-lg">
-                {highlightedText}
-              </div>
-            </div>
-          </div>
-
-          {activeThreat?.position && (
-            <div className="text-2xs text-red-400 mt-3 bg-red-900/30 px-2 py-1 rounded border border-red-500/30">
-              📍 Position: {activeThreat.position}
-            </div>
-          )}
-        </div>
-
-        {/* Recent Threats List */}
-        {recentThreats.length > 1 && (
-          <div>
-            <h4 className="text-xs font-semibold text-gray-300 mb-2">Recent Threats</h4>
-            <div className="space-y-2">
-              {recentThreats.map((threat, index) => (
-                <div
-                  key={`${threat.timestamp}-${index}`}
-                  onClick={() => {
-                    setSelectedThreat(threat);
-                    processThreatText(threat);
-                    if (onThreatClick) onThreatClick(threat);
-                  }}
-                  className={`p-3 rounded border cursor-pointer transition-all duration-200 ${
-                    threat.id === activeThreat?.id
-                      ? 'border-blue-400 bg-blue-900/20'
-                      : 'border-gray-700 bg-gray-800 hover:border-gray-600'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gray-300">
-                      {threat.type?.replace('_', ' ')}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {Math.round(threat.confidence * 100)}%
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-400 mt-1 line-clamp-2">
-                    {threat.reason}
-                  </div>
-                  <time className="text-2xs text-gray-500">
-                    {new Date(threat.timestamp).toLocaleTimeString()}
-                  </time>
-                </div>
-              ))}
-            </div>
-          </div>
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      height: '100%', background: 'var(--bg-surface)', overflow: 'hidden',
+    }}>
+      {/* Header — no position absolute */}
+      <div className="panel-header" style={{ justifyContent: 'space-between' }}>
+        <span>threat analysis</span>
+        {confidence != null && (
+          <span style={{ color: confidenceColor(confidence), fontWeight: 700, fontSize: 'var(--text-xs)' }}>
+            {confidenceLabel(confidence)} {Math.round(confidence * 100)}%
+          </span>
         )}
       </div>
 
-      {/* Static analysis badges for empty state */}
-      {recentThreats.length === 0 && (
-        <div className="p-4 bg-gray-850">
-          <div className="text-center">
-            <div className="text-xs text-gray-500 mb-2">Static Analysis Options</div>
-            <div className="grid grid-cols-2 gap-2 text-2xs">
-              <button className="bg-gray-700 text-gray-300 px-2 py-1 rounded cursor-not-allowed">
-                Unicode Scan
-              </button>
-              <button className="bg-gray-700 text-gray-300 px-2 py-1 rounded cursor-not-allowed">
-                EXIF Scan
-              </button>
-              <button className="bg-gray-700 text-gray-300 px-2 py-1 rounded cursor-not-allowed">
-                B64 Scan
-              </button>
-              <button className="bg-gray-700 text-gray-300 px-2 py-1 rounded cursor-not-allowed">
-                Emoji Scan
-              </button>
-            </div>
+      {/* Body */}
+      <div style={{ flex: '1 1 0', overflowY: 'auto', padding: '10px 12px', minHeight: 0 }}>
+
+        {!active ? (
+          <div style={{
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            height: '100%', color: 'var(--text-muted)',
+            fontSize: 'var(--text-sm)', textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 20, marginBottom: 8, opacity: 0.3 }}>⊙</div>
+            no threats detected
           </div>
-        </div>
-      )}
+        ) : (
+          <>
+            {/* Vector badge */}
+            {vector && (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '2px 8px',
+                border: `1px solid ${confidenceColor(confidence ?? 0.9)}`,
+                borderRadius: 2, marginBottom: 10,
+                fontSize: 'var(--text-xs)',
+                fontFamily: "'Fira Code', monospace",
+                color: confidenceColor(confidence ?? 0.9),
+              }}>
+                {vector.replace(/_/g, ' ')}
+              </div>
+            )}
+
+            {/* Prompt box */}
+            <div style={{
+              padding: 10, background: 'var(--bg-raised)',
+              border: '1px solid var(--border-subtle)', borderRadius: 3,
+              fontFamily: "'Fira Code', monospace", fontSize: 'var(--text-xs)',
+              lineHeight: 1.7, wordBreak: 'break-word', marginBottom: 10,
+              maxHeight: 160, overflowY: 'auto',
+            }}>
+              <HighlightedPrompt text={promptText} spans={span} />
+            </div>
+
+            {/* Evidence */}
+            {active.evidence && active.evidence !== promptText && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{
+                  fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
+                  marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em',
+                }}>
+                  extracted payload
+                </div>
+                <div style={{
+                  padding: '6px 10px',
+                  background: 'rgba(248,113,113,0.06)',
+                  border: '1px solid rgba(248,113,113,0.20)',
+                  borderRadius: 3,
+                  fontFamily: "'Fira Code', monospace",
+                  fontSize: 'var(--text-xs)', color: 'var(--color-critical)',
+                  wordBreak: 'break-all',
+                }}>
+                  {active.evidence}
+                </div>
+              </div>
+            )}
+
+            {/* Threat history */}
+            {recentThreats.length > 1 && (
+              <div>
+                <div style={{
+                  fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
+                  marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em',
+                }}>
+                  threat history ({recentThreats.length})
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {recentThreats.map((t, i) => (
+                    <div
+                      key={t.id || i}
+                      onClick={() => { setSelectedThreat(t); onThreatClick?.(t); }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '5px 8px',
+                        background: t === active ? 'var(--bg-overlay)' : 'transparent',
+                        border: `1px solid ${t === active ? 'var(--border-accent)' : 'var(--border-subtle)'}`,
+                        borderRadius: 2, cursor: 'pointer',
+                        transition: 'all 100ms ease-out',
+                      }}
+                    >
+                      <span style={{
+                        fontFamily: "'Fira Code', monospace", fontSize: 'var(--text-xs)',
+                        color: confidenceColor(t.confidence ?? 0.8), width: 28, textAlign: 'right',
+                      }}>
+                        {t.confidence != null ? `${Math.round(t.confidence * 100)}%` : '—'}
+                      </span>
+                      <span style={{
+                        fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
+                        flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {(t.injection_vector || t.type || '').replace(/_/g, ' ')}
+                      </span>
+                      <span style={{
+                        fontFamily: "'Fira Code', monospace",
+                        fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
+                      }}>
+                        {new Date((t.timestamp || 0) * 1000).toLocaleTimeString('en-US', { hour12: false })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
-};
-
-export default InjectionHighlight;
+}

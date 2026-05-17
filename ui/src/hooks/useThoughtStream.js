@@ -1,116 +1,109 @@
 import { useState, useEffect, useRef } from 'react';
 
+// Store events per session globally (outside component)
+const sessionEventsCache = new Map();
+const sessionPausedCache = new Map();
+
 export const useThoughtStream = (sessionId) => {
   const [events, setEvents] = useState([]);
   const [isPaused, setIsPaused] = useState(false);
-  const [severity, setSeverity] = useState('clean');
-  const [connection, setConnection] = useState('connecting');
-  const eventSourceRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
+  const [connection, setConnection] = useState('disconnected');
+  const esRef = useRef(null);
+  const retryRef = useRef(null);
+  const mountedRef = useRef(true);
 
-  const connect = () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // When session changes, load cached events for that session
+  useEffect(() => {
     if (!sessionId) {
-      setConnection('disconnected');
+      setEvents([]);
+      setIsPaused(false);
       return;
     }
 
-    setConnection('connecting');
-
-    try {
-      const eventSource = new EventSource(`/api/control/events/${sessionId}`);
-      eventSourceRef.current = eventSource;
-
-      eventSource.onopen = () => {
-        setConnection('connected');
-      };
-
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          if (data.type === 'PAUSED') {
-            setIsPaused(true);
-          } else if (data.type === 'RESUMED' || data.type === 'KILLED') {
-            setIsPaused(false);
-          }
-
-          if (data.severity) {
-            setSeverity(data.severity);
-          }
-
-          setEvents(prev => [...prev, data]);
-        } catch (e) {
-          console.error('Failed to parse event data:', e);
-        }
-      };
-
-      eventSource.onerror = (error) => {
-        console.error('SSE connection error:', error);
-        setConnection('error');
-        eventSource.close();
-
-        // Auto-reconnect after 2 seconds
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (sessionId) {
-            connect();
-          }
-        }, 2000);
-      };
-
-    } catch (error) {
-      console.error('Failed to connect to SSE:', error);
-      setConnection('error');
-
-      // Retry after 3 seconds
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      reconnectTimeoutRef.current = setTimeout(() => {
-        if (sessionId) {
-          connect();
-        }
-      }, 3000);
-    }
-  };
-
-  const disconnect = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-
-    setEvents([]);
-    setIsPaused(false);
-    setSeverity('clean');
-    setConnection('disconnected');
-  };
-
-  useEffect(() => {
-    if (sessionId) {
-      connect();
+    // Load cached events for this session
+    if (sessionEventsCache.has(sessionId)) {
+      setEvents(sessionEventsCache.get(sessionId));
+      setIsPaused(sessionPausedCache.get(sessionId) || false);
     } else {
-      disconnect();
+      setEvents([]);
+      setIsPaused(false);
     }
 
-    return () => {
-      disconnect();
-    };
+    // Connect SSE for this session
+    connect(sessionId);
+
+    return () => cleanup();
   }, [sessionId]);
 
-  return {
-    events,
-    isPaused,
-    severity,
-    connection,
-    connect,
-    disconnect
-  };
+  function connect(id) {
+    cleanup();
+    if (!id || !mountedRef.current) return;
+
+    setConnection('connecting');
+
+    const es = new EventSource(`/events/${id}`);
+    esRef.current = es;
+
+    es.onopen = () => {
+      if (!mountedRef.current) return;
+      setConnection('connected');
+    };
+
+    es.onmessage = (e) => {
+      if (!mountedRef.current) return;
+      try {
+        const data = JSON.parse(e.data);
+
+        if (data.type === 'PAUSED') {
+          setIsPaused(true);
+          sessionPausedCache.set(id, true);
+        }
+        if (data.type === 'RESUMED' || data.type === 'KILLED') {
+          setIsPaused(false);
+          sessionPausedCache.set(id, false);
+        }
+
+        // Update cache and state
+        const currentEvents = sessionEventsCache.get(id) || [];
+        const newEvents = [...currentEvents, data];
+        sessionEventsCache.set(id, newEvents);
+        
+        // Only update UI if this is the active session
+        if (id === sessionId) {
+          setEvents(newEvents);
+        }
+      } catch (err) {
+        console.warn('SSE parse error:', err);
+      }
+    };
+
+    es.onerror = () => {
+      if (!mountedRef.current) return;
+      setConnection('error');
+      es.close();
+
+      retryRef.current = setTimeout(() => {
+        if (mountedRef.current && sessionId) connect(sessionId);
+      }, 3000);
+    };
+  }
+
+  function cleanup() {
+    if (retryRef.current) {
+      clearTimeout(retryRef.current);
+      retryRef.current = null;
+    }
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+    setConnection('disconnected');
+  }
+
+  return { events, isPaused, connection };
 };

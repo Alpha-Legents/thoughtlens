@@ -23,6 +23,14 @@ export default defineConfig({
       '/sessions': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+      },
+      '/resume': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/kill': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       }
     }
   }

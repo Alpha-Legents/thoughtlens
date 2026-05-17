@@ -1,20 +1,22 @@
-from pydantic_settings import BaseSettings
+import os
+from dotenv import load_dotenv
 
+# Load .env file
+load_dotenv()
 
-class Settings(BaseSettings):
-    tl_port: int = 8000
-    tl_llm_url: str = "https://api.groq.com/openai/v1"
-    tl_llm_key: str = "placeholder_key"
-    tl_lt_port: int = 8080
-    tl_lt_binary: str = "./lobstertrap/lobstertrap"
-    tl_lt_policy: str = "./configs/thoughtlens_policy.yaml"
-    tl_log_level: str = "info"
-    prism_provider: str = "https://api.groq.com/openai/v1"
-    prism_key: str = "placeholder_key"
-    prism_model: str = "llama-3.3-70b-versatile"
-
-    class Config:
-        env_file = ".env"
-
+class Settings:
+    """Manually load settings from environment without Pydantic validation."""
+    
+    def __init__(self):
+        self.tl_port = int(os.environ.get("TL_PORT", "8000"))
+        self.tl_llm_url = os.environ.get("TL_LLM_URL", "https://api.groq.com/openai/v1")
+        self.tl_llm_key = os.environ.get("TL_LLM_KEY", "placeholder_key")
+        self.tl_lt_port = int(os.environ.get("TL_LT_PORT", "8080"))
+        self.tl_lt_binary = os.environ.get("TL_LT_BINARY", "./lobstertrap/lobstertrap")
+        self.tl_lt_policy = os.environ.get("TL_LT_POLICY", "./configs/thoughtlens_policy.yaml")
+        self.tl_log_level = os.environ.get("TL_LOG_LEVEL", "info")
+        self.prism_provider = os.environ.get("PRISM_PROVIDER", "https://api.groq.com/openai/v1")
+        self.prism_key = os.environ.get("PRISM_KEY", "placeholder_key")
+        self.prism_model = os.environ.get("PRISM_MODEL", "llama-3.3-70b-versatile")
 
 settings = Settings()

@@ -1,44 +1,238 @@
 version: 1
 policy_name: "thoughtlens-policy"
-rules:
-  - name: injection_attempt
-    match:
-      pattern: injection
-    action: HUMAN_REVIEW
-    log: true
 
-  - name: path_traversal
-    match:
-      pattern: path_traversal
-    action: HUMAN_REVIEW
-    log: true
+ingress_rules:
+  - name: block_exfiltration_domains
+    priority: 400
+    action: DENY
+    conditions:
+      - field: target_domains
+        match_type: regex
+        value: "webhook\\.site|requestbin\\.com|ngrok\\.io|localtunnel\\.me|pipedream\\.net|hookbin\\.com|canarytokens\\.com|burpcollaborator\\.net|interact\\.sh"
+        
+  - name: block_sensitive_paths
+    priority: 390
+    action: DENY
+    conditions:
+      - field: contains_sensitive_paths
+        match_type: boolean
+        value: true
 
-  - name: credential_in_prompt
-    match:
-      pattern: credential
+  - name: block_credential_access
+    priority: 380
     action: HUMAN_REVIEW
-    log: true
+    conditions:
+      - field: contains_credentials
+        match_type: boolean
+        value: true
 
-  - name: exfiltration_attempt
-    match:
-      pattern: exfiltration
+  - name: block_injection_attempts
+    priority: 370
     action: HUMAN_REVIEW
-    log: true
+    conditions:
+      - field: contains_injection_patterns
+        match_type: boolean
+        value: true
 
-  - name: pii_detected
-    match:
-      pattern: pii
+  - name: block_malware_requests
+    priority: 360
+    action: DENY
+    conditions:
+      - field: contains_malware_request
+        match_type: boolean
+        value: true
+
+  - name: block_phishing_patterns
+    priority: 350
+    action: DENY
+    conditions:
+      - field: contains_phishing_patterns
+        match_type: boolean
+        value: true
+
+  - name: block_harmful_content
+    priority: 340
+    action: DENY
+    conditions:
+      - field: contains_harm_patterns
+        match_type: boolean
+        value: true
+
+  - name: block_system_commands
+    priority: 250
+    action: HUMAN_REVIEW
+    conditions:
+      - field: contains_system_commands
+        match_type: boolean
+        value: true
+
+  - name: block_exfiltration_patterns
+    priority: 240
+    action: HUMAN_REVIEW
+    conditions:
+      - field: contains_exfiltration
+        match_type: boolean
+        value: true
+
+  - name: block_role_impersonation
+    priority: 230
+    action: HUMAN_REVIEW
+    conditions:
+      - field: contains_role_impersonation
+        match_type: boolean
+        value: true
+
+  - name: block_obfuscation
+    priority: 220
+    action: HUMAN_REVIEW
+    conditions:
+      - field: contains_obfuscation
+        match_type: boolean
+        value: true
+
+  - name: block_code_execution
+    priority: 210
     action: LOG
-    log: true
+    conditions:
+      - field: contains_code
+        match_type: boolean
+        value: true
 
-  - name: high_risk
-    match:
-      risk_score_above: 0.7
+  - name: high_risk_score
+    priority: 205
     action: HUMAN_REVIEW
-    log: true
+    conditions:
+      - field: risk_score
+        match_type: threshold
+        value: 0.7
 
-  - name: default
-    match:
-      all: true
+  - name: log_pii_detected
+    priority: 150
+    action: LOG
+    conditions:
+      - field: contains_pii
+        match_type: boolean
+        value: true
+
+  - name: log_pii_request
+    priority: 140
+    action: LOG
+    conditions:
+      - field: contains_pii_request
+        match_type: boolean
+        value: true
+
+  - name: medium_risk_score
+    priority: 130
+    action: LOG
+    conditions:
+      - field: risk_score
+        match_type: threshold
+        value: 0.3
+
+  - name: log_file_paths
+    priority: 120
+    action: LOG
+    conditions:
+      - field: contains_file_paths
+        match_type: boolean
+        value: true
+
+  - name: log_urls
+    priority: 110
+    action: LOG
+    conditions:
+      - field: contains_urls
+        match_type: boolean
+        value: true
+
+  - name: allow_safe_chat
+    priority: 10
     action: ALLOW
-    log: false
+    conditions:
+      - field: contains_sensitive_paths
+        match_type: boolean
+        value: false
+      - field: contains_credentials
+        match_type: boolean
+        value: false
+      - field: contains_injection_patterns
+        match_type: boolean
+        value: false
+      - field: contains_exfiltration
+        match_type: boolean
+        value: false
+      - field: risk_score
+        match_type: threshold
+        value: 0.3
+
+  - name: default_allow
+    priority: 0
+    action: ALLOW
+    conditions:
+      - field: risk_score
+        match_type: threshold
+        value: 1.0
+
+egress_rules:
+  - name: block_sensitive_output
+    priority: 100
+    action: LOG
+    conditions:
+      - field: contains_credentials
+        match_type: boolean
+        value: true
+      - field: contains_pii
+        match_type: boolean
+        value: true
+
+  - name: log_suspicious_output
+    priority: 50
+    action: LOG
+    conditions:
+      - field: risk_score
+        match_type: threshold
+        value: 0.5
+
+  - name: default_allow_egress
+    priority: 0
+    action: ALLOW
+    conditions:
+      - field: risk_score
+        match_type: threshold
+        value: 0.0
+
+rate_limits:
+  requests_per_minute: 120
+  requests_per_hour: 2000
+  burst_threshold: 30
+
+network:
+  egress_policy: allowlist
+  allowed_domains:
+    - "api.groq.com"
+    - "api.openai.com"
+    - "api.anthropic.com"
+  denied_domains:
+    - "*.onion"
+    - "*.ru"
+    - "*.top"
+    - "webhook.site"
+    - "requestbin.com"
+    - "ngrok.io"
+
+filesystem:
+  denied_paths:
+    - "/etc/**"
+    - "/root/**"
+    - "**/.ssh/**"
+    - "**/.env"
+    - "**/*.pem"
+    - "**/*.key"
+  allowed_read_paths:
+    - "/home/*/documents/**"
+    - "/tmp/workspace/**"
+    - "./reports/**"
+  allowed_write_paths:
+    - "/tmp/agent_output/**"
+    - "./output/**"

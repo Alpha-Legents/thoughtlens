@@ -118,11 +118,13 @@ def _extract_text(request_body: dict[str, Any]) -> str:
         parts.append(str(request_body["system"]))
     for message in request_body.get("messages", []):
         if isinstance(message, dict):
-            text = _message_text(message.get("content"))
-            if text:
-                parts.append(text)
+            # Include tool role messages (file content, API responses)
+            role = message.get("role", "")
+            if role in ("user", "tool", "assistant"):
+                text = _message_text(message.get("content"))
+                if text:
+                    parts.append(text)
     return "\n\n".join(parts)
-
 
 def _instruction_signal(text: str) -> tuple[bool, float]:
     lower = text.lower()

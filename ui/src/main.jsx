@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
-import './tailwind.output.css'
+import './index.css'
 
 // Fix dark mode flickering
 if (typeof window !== 'undefined') {

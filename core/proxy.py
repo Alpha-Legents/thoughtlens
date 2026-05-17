@@ -3,6 +3,8 @@ Main proxy endpoint for ThoughtLens.
 Handles incoming LLM requests, applies security screening, and proxies to PRISM.
 """
 import asyncio
+import uuid
+import time
 from typing import AsyncIterator
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -171,14 +173,28 @@ async def proxy_messages(request: Request):
         # Extract declared scope
         declared_scope = extract_scope(body)
 
-        # Create session
-        session = create_session(original_prompt, declared_scope)
+        # Get or create session (use session_id from request if provided)
+        session_id = body.get("session_id")
+        print(f">>> Received session_id from client: {session_id}", flush=True)
 
-        # Emit scope event
+        if session_id:
+            session = session_registry.get_session(session_id)
+            if not session:
+                # Create session with the client's session_id
+                session = create_session(original_prompt, declared_scope, session_id=session_id)
+                print(f">>> Created NEW session with client ID: {session.session_id}", flush=True)
+            else:
+                print(f">>> REUSING existing session: {session.session_id}", flush=True)
+        else:
+            # NO session_id provided - create a new one
+            session = create_session(original_prompt, declared_scope)
+            print(f">>> Created NEW session with auto-generated ID: {session.session_id}", flush=True)
+
+        # Now session is DEFINED before we use it
         scope_event = _build_scope_event(session)
         await emitter.broadcast(session.session_id, scope_event)
         append_event(session.session_id, scope_event)
-
+        
         # Pre-execution scan
         scan_result: ScanResult = scan(body, original_prompt)
         for threat in scan_result.threats:
@@ -194,22 +210,35 @@ async def proxy_messages(request: Request):
             paused_ev = _build_paused_event(session, None)
             await emitter.broadcast(session.session_id, paused_ev)
             append_event(session.session_id, paused_ev)
-
-        # Wait for operator if paused pre-exec
-        killed = await pause.wait_if_held(session.session_id)
-        if killed:
+            
             return JSONResponse(
-                status_code=403,
-                content={"error": "session killed by operator"}
+                status_code=202,
+                content={
+                    "status": "paused",
+                    "reason": "pre_execution_threat",
+                    "message": "Pre-execution scan detected malicious content. Check UI for details.",
+                    "session_id": session.session_id,
+                    "dashboard_url": "http://localhost:3000",
+                    "threats": [
+                        {
+                            "vector": t.vector,
+                            "confidence": t.confidence,
+                            "evidence": t.evidence[:200] if t.evidence else None
+                        } for t in high_conf
+                    ]
+                }
             )
+
 
         # Forward to Lobster Trap
         lt_url = f"http://localhost:{settings.tl_lt_port}"
         print(f">>> About to call forward_to_lt with {lt_url}", flush=True)
         print(f">>> body keys: {list(body.keys())}", flush=True)
         
+        clean_body = {k: v for k, v in body.items() if k != "session_id"}
+        
         try:
-            lt_result = await forward_to_lt(body, headers, lt_url)
+            lt_result = await forward_to_lt(clean_body, headers, lt_url)
             print(f">>> lt_result type: {type(lt_result)}", flush=True)
         except Exception as e:
             import traceback
@@ -228,19 +257,82 @@ async def proxy_messages(request: Request):
         append_event(session.session_id, lt_ev)
 
         # Handle LT actions
-        if lt_result.action == "DENY":
-            await pause.kill(session.session_id)
-            return JSONResponse(
-                status_code=403,
-                content={"error": "blocked by Lobster Trap policy"}
-            )
+        print(f">>> LT ACTION VALUE: '{lt_result.action}'", flush=True)
+        print(f">>> LT ACTION TYPE: {type(lt_result.action)}", flush=True)
+        print(f">>> Is DENY? {lt_result.action == 'DENY'}", flush=True)
 
+        if lt_result.action == "DENY":
+            await pause.hold(session.session_id)
+            session_registry.update_status(session.session_id, "paused")
+            
+            # Find injection span in original prompt
+            injection_span = None
+            detected = lt_result.forwarded_body.get("_lobstertrap", {}).get("ingress", {}).get("detected", {}) if lt_result.forwarded_body else {}
+            targets = detected.get("target_paths", [])
+            domains = detected.get("target_domains", [])
+            
+            # Use domains if available, otherwise paths
+            malicious_items = domains if domains else targets
+            
+            if malicious_items and original_prompt:
+                target = malicious_items[0]
+                start = original_prompt.find(target)
+                if start != -1:
+                    injection_span = (start, start + len(target))
+            
+            # Emit a SCAN_THREAT event for UI highlighting
+            if malicious_items:
+                threat_event = ThoughtEvent(
+                    id=str(uuid.uuid4()),
+                    session_id=session.session_id,
+                    type=EventType.SCAN_THREAT,
+                    severity=Severity.CRITICAL,
+                    timestamp=time.time(),
+                    message=f"Blocked: {lt_result.rule_triggered} - {', '.join(malicious_items)}",
+                    original_prompt=original_prompt,
+                    injection_span=injection_span,
+                    injection_vector=lt_result.rule_triggered,
+                    confidence=0.95,
+                    evidence=malicious_items[0] if malicious_items else None
+                )
+                await emitter.broadcast(session.session_id, threat_event)
+                append_event(session.session_id, threat_event)                
+            
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "status": "paused",
+                    "reason": "denied",
+                    "message": "Session has been flagged for malicious injection. Check UI to kill or proceed.",
+                    "session_id": session.session_id,
+                    "dashboard_url": "http://localhost:3000",
+                    "rule": lt_result.rule_triggered,
+                    "targets": targets,
+                    "original_prompt": original_prompt,  
+                    "injection_span": injection_span   
+                }
+            )
+            
+            
         if lt_result.action in ("HUMAN_REVIEW", "QUARANTINE"):
             await pause.hold(session.session_id)
             session_registry.update_status(session.session_id, "paused")
             paused_ev = _build_paused_event(session, None)
             await emitter.broadcast(session.session_id, paused_ev)
             append_event(session.session_id, paused_ev)
+            
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "status": "paused",
+                    "reason": "human_review",
+                    "message": "Session requires human review. Check UI to approve or reject.",
+                    "session_id": session.session_id,
+                    "dashboard_url": "http://localhost:3000",
+                    "risk_score": lt_result.risk_score,
+                    "intent_category": lt_result.intent_category
+                }
+            )
 
         # Rate limit pause
         if lt_result.action == "RATE_LIMIT":
@@ -275,7 +367,7 @@ async def proxy_messages(request: Request):
         )
 
 
-def _get_raw_stream(lt_result: LTResult) -> AsyncIterator[bytes]:
+async def _get_raw_stream(lt_result: LTResult) -> AsyncIterator[bytes]:
     """Get raw stream from LT result."""
     # If LT returned a full response, yield it as a single chunk
     if lt_result.forwarded_body:
@@ -284,7 +376,6 @@ def _get_raw_stream(lt_result: LTResult) -> AsyncIterator[bytes]:
 
     # For now, yield an empty iterator if no body
     return
-    yield
 
 
 def _get_client_format(headers: dict) -> str:
