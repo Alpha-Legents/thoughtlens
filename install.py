@@ -81,7 +81,7 @@ def setup_lobstertrap():
     print(f"{CYAN}  [1/4] Setting up Lobster Trap...{NC}")
     
     lobster_dir = Path("../lobstertrap")
-    repo_url = "https://github.com/VeeaTech/lobstertrap.git"
+    repo_url = "https://github.com/veeainc/lobstertrap"
     
     if lobster_dir.exists():
         print(f"{YELLOW}        + Lobster Trap already exists, updating...{NC}")
