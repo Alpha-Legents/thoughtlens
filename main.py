@@ -37,13 +37,6 @@ app = FastAPI(
     version="0.1.0"
 )
 
-#@app.middleware("http")
-#async def log_requests(request: Request, call_next):
-#    print(f"MIDDLEWARE: {request.method} {request.url.path}")
-#   response = await call_next(request)
-#   print(f"MIDDLEWARE: Response status {response.status_code}")
-#   return response
-
 # Register documented routes and UI-compatible aliases.
 app.include_router(sse_router)
 app.include_router(control_router)
