@@ -160,11 +160,6 @@ Opens `http://localhost:3000` automatically.
 ```bash
 # Interactive CLI (type commands manually)
 python demo/interactive_agent.py
-
-# Automated scenarios
-python demo/agent.py --scenario file_injection
-python demo/agent.py --scenario image_injection
-python demo/agent.py --scenario api_exfiltration
 ```
 
 ---
@@ -201,9 +196,9 @@ thoughtlens/
 │
 ├── demo/
 │   ├── interactive_agent.py    # Intentionally dumb CLI agent for demo
-│   ├── agent.py                # Automated scenario runner
-│   ├── generate_test_images.py # Creates EXIF-injected JPEGs for demo
 │   ├── hello.txt               # File with hidden injection payload
+│   ├── product1.jpg            # Normal image for testing
+│   ├── product2.jpg            # Malicious image for testing
 │   └── scenarios/              # file_injection, image_injection, api_exfiltration
 │
 ├── configs/
