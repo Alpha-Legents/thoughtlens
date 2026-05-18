@@ -123,7 +123,7 @@ When any layer returns CRITICAL: `asyncio.Event.clear()` blocks the streaming ge
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- Go (optional — for Lobster Trap DPI layer)
+- Go
 
 ### Install
 
@@ -135,7 +135,7 @@ cp .env.example .env
 # edit .env — add your LLM API key
 ```
 
-Install Lobster Trap (optional but recommended):
+Install Lobster Trap:
 ```bash
 git clone https://github.com/veeainc/lobstertrap
 cd lobstertrap
